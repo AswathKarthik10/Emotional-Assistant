@@ -9,7 +9,7 @@ from textblob import TextBlob  # Import for sentiment analysis
 import json
 
 # Read the API key from the config.json file
-with open(r'C:\Users\aswat\OneDrive\Documents\Voice\config.json', 'r') as file:
+with open(r'config.json', 'r') as file:
     config = json.load(file)
     api_key = config['api_key']
 
