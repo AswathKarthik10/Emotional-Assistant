@@ -79,7 +79,7 @@ async def process_audio():
     stream.close()
 
     # Save the recorded audio to a file
-    output_file = r"C:\Users\aswat\OneDrive\Documents\Voice\outputs\output_test.wav"
+    output_file = "outputs/output_test.wav"
     with wave.open(output_file, 'wb') as obj:
         obj.setnchannels(CHANNELS)
         obj.setsampwidth(p.get_sample_size(FORMAT))
@@ -126,7 +126,7 @@ async def generate_response(audio_file):
     conversation_history.append(response_text)  # Add response to history
 
     # Convert text response to speech and save as audio file
-    response_audio_file = r"C:\Users\aswat\OneDrive\Documents\Voice\outputs\response_audio.mp3"
+    response_audio_file = "outputs/response_audio.mp3"
     await text_to_speech(response_text, response_audio_file)
 
     return response_text, response_audio_file, red_flag_detected, red_flag_message, detected_keywords
