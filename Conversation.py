@@ -4,25 +4,28 @@ import pyaudio
 import gradio as gr
 import edge_tts
 import asyncio
-from textblob import TextBlob
 import google.generativeai as genai
+from textblob import TextBlob  # Import for sentiment analysis
 import json
 
-# Get the API-key from the config json file
-with open('config.json', 'r') as file:
+# Read the API key from the config.json file
+with open(r'C:\Users\aswat\OneDrive\Documents\Voice\config.json', 'r') as file:
     config = json.load(file)
     api_key = config['api_key']
 
 # Configure genai with the API key
 genai.configure(api_key=api_key)
 
+# Now you can use genai functions as needed
+print("genai is configured with the API key.")
+
 # Audio settings
 FRAMES_PER_BUFFER = 3200
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
 RATE = 16000
-SILENCE_THRESHOLD = 100
-SILENCE_DURATION = 2
+SILENCE_THRESHOLD = 100  # Amplitude threshold for silence detection
+SILENCE_DURATION = 3  # Duration in seconds to consider as silence
 
 # Initialize PyAudio
 p = pyaudio.PyAudio()
@@ -47,7 +50,8 @@ async def process_audio():
         frames_per_buffer=FRAMES_PER_BUFFER
     )
 
-    print('Start recording...')
+    print('start recording...')
+    
     frames = []
     silent_chunks = 0
     silence_limit = int(RATE / FRAMES_PER_BUFFER * SILENCE_DURATION)
@@ -75,7 +79,7 @@ async def process_audio():
     stream.close()
 
     # Save the recorded audio to a file
-    output_file = r"outputs/user_voice.wav"
+    output_file = r"C:\Users\aswat\OneDrive\Documents\Voice\outputs\output_test.wav"
     with wave.open(output_file, 'wb') as obj:
         obj.setnchannels(CHANNELS)
         obj.setsampwidth(p.get_sample_size(FORMAT))
@@ -84,70 +88,67 @@ async def process_audio():
     
     return output_file
 
-async def transcribe_audio_streaming(audio_file):
-    """Streaming transcription placeholder."""
-    # This function should be implemented with a real streaming transcription service
-    print("Simulating streaming transcription...")
-    transcription = "This is a simulated transcription of the recorded audio."
-    return transcription
+async def transcribe_audio(audio_file):
+    """Transcribe the audio file to text using the generative model."""
+    myfile = genai.upload_file(audio_file)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    
+    result = model.generate_content([myfile, "Transcribe what you hear in the audio file"])
+    response_text = result.text
+    return response_text
 
 async def generate_response(audio_file):
     global conversation_history
 
     # Transcribe the audio file to text
-    transcription = await transcribe_audio_streaming(audio_file)
+    transcription = await transcribe_audio(audio_file)
 
-    # Detect red flags and generate a response in parallel
-    response_text, red_flag_detected, red_flag_message = await handle_response_and_red_flags(transcription, audio_file)
+    # Detect red flags in the transcription
+    red_flag_detected, red_flag_message, detected_keywords = detect_red_flags(transcription)
 
-    # Convert text response to speech and save as audio file
-    response_audio_file = "outputs/response_audio.mp3"
-    await text_to_speech(response_text, response_audio_file)
-
-    return response_text, response_audio_file, red_flag_detected, red_flag_message
-
-async def handle_response_and_red_flags(transcription, audio_file):
-    """Generate a response and detect red flags in parallel."""
-    red_flag_task = asyncio.create_task(detect_red_flags(transcription))
-    response_task = asyncio.create_task(generate_model_response(audio_file, transcription))
-
-    # Await both tasks
-    red_flag_detected, red_flag_message = await red_flag_task
-    response_text = await response_task
-
-    conversation_history.append(response_text)
-    return response_text, red_flag_detected, red_flag_message
-
-async def generate_model_response(audio_file, transcription):
-    """Generate a response using the model."""
+    # Process the audio file with your model
     myfile = genai.upload_file(audio_file)
-    context = "\n".join(conversation_history[-5:])
+
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    
+    # Build the context by combining previous messages
+    context = "\n".join(conversation_history[-5:])  # Get the last 5 messages
     prompt = (f"You are an emotional assistant. You help people by listening to them and provide them "
-              f"with appropriate advice, but mainly you listen to them and lend them an ear. "
+              "with appropriate advice, but mainly you listen to them and lend them an ear. "
               f"Previous messages:\n{context}\n"
               "Give a suitable response based on the audio and maintain a conversational style. "
               "Acknowledge the positive things mentioned by them. "
-              "Furthermore, the response can be a follow-up question, a piece of advice, or anything "
+              "Furthermore, the response can be a follow-up question, or a piece of advice, or anything "
               "that you deem as suitable as an emotional assistant.")
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
     result = model.generate_content([myfile, prompt])
     response_text = result.text
-    return response_text
+    conversation_history.append(response_text)  # Add response to history
 
-async def detect_red_flags(transcription):
+    # Convert text response to speech and save as audio file
+    response_audio_file = r"C:\Users\aswat\OneDrive\Documents\Voice\outputs\response_audio.mp3"
+    await text_to_speech(response_text, response_audio_file)
+
+    return response_text, response_audio_file, red_flag_detected, red_flag_message, detected_keywords
+
+def detect_red_flags(transcription):
     """Detect red flags in the transcription based on sentiment analysis and keywords."""
+    detected_keywords = []
+
     # Check for red flag keywords
     for keyword in RED_FLAG_KEYWORDS:
         if keyword in transcription.lower():
-            return True, "Detected negative sentiment related to: " + keyword
+            detected_keywords.append(keyword)
 
     # Analyze sentiment
     sentiment = TextBlob(transcription).sentiment
-    if sentiment.polarity < 0:
-        return True, "Detected negative sentiment."
+    if detected_keywords or sentiment.polarity < 0:  # Negative sentiment
+        red_flag_message = "Detected negative sentiment."
+        if detected_keywords:
+            red_flag_message += " Keywords detected: " + ", ".join(detected_keywords)
+        return True, red_flag_message, detected_keywords
 
-    return False, ""
+    return False, "No red flags detected.", detected_keywords
 
 async def text_to_speech(text, output_file):
     """Convert text to speech using edge-tts and save as audio file."""
@@ -158,27 +159,32 @@ async def text_to_speech(text, output_file):
                 file.write(chunk["data"])
 
 async def talk():
-    audio_file = await process_audio()
-    response, audio_file_response, red_flag_detected, red_flag_message = await generate_response(audio_file)
-    return response, audio_file_response, red_flag_detected, red_flag_message
+    audio_file = await process_audio()  # Record audio
+    response, audio_file_response, red_flag_detected, red_flag_message, detected_keywords = await generate_response(audio_file)  # Generate response
+    return response, audio_file_response, red_flag_detected, red_flag_message, audio_file, detected_keywords
 
 def gradio_interface():
     with gr.Blocks() as demo:
         gr.Markdown("### Emotional Assistant")
         audio_button = gr.Button("Start Recording")
+        user_audio_output = gr.Audio(label="User Audio", type="filepath")
         output_text = gr.Textbox(label="Assistant Response", interactive=False)
         audio_output = gr.Audio(label="Response Audio", type="filepath")
         red_flag_output = gr.Textbox(label="Red Flag Detection", interactive=False)
+        detected_keywords_output = gr.Textbox(label="Detected Keywords", interactive=False)
 
         def start_recording():
-            response, audio_file_response, red_flag_message = asyncio.run(talk())
-            if red_flag_message:
+            response, audio_file_response, red_flag_detected, red_flag_message, user_audio_file, detected_keywords = asyncio.run(talk())
+            if red_flag_detected:
                 red_flag_message = f"⚠️ Red Flag Detected: {red_flag_message}"
             else:
                 red_flag_message = "No red flags detected."
-            return response, audio_file_response, red_flag_message
+            return response, audio_file_response, user_audio_file, red_flag_message, ", ".join(detected_keywords)
 
-        audio_button.click(fn=start_recording, outputs=[output_text, audio_output, red_flag_output])
+        audio_button.click(
+            fn=start_recording, 
+            outputs=[output_text, audio_output, user_audio_output, red_flag_output, detected_keywords_output]
+        )
 
     demo.launch()
 
